@@ -43,21 +43,14 @@ static void composite_fn(const double in[], double out[], size_t row) {
     out[2] = g_diff;
 }
 
-/*――――――――――――――――――――――――――――――――――――
-  Usage 表示
-――――――――――――――――――――――――――――――――――――*/
-static void print_usage(const char *prog) {
-    fprintf(stderr,
-        "Usage: %s <input.csv> <output.csv>\n"
-        "  <input.csv>  読み込むCSVファイル\n"
-        "  <output.csv> 演算結果を書き出すCSVファイル\n",
-        prog
-    );
-}
-
+/**
+ *******************************************************************************************
+ * MAIN Method
+ *******************************************************************************************
+ */
 int main(int argc, char *argv[]) {
     if (argc != 3) {
-        print_usage(argv[0]);
+        fprintf(stderr, "Usage: %s input.csv output.csv\n", argv[0]);
         return EXIT_FAILURE;
     }
     const char *infile  = argv[1];
