@@ -1,12 +1,41 @@
-#define _GNU_SOURCE
 #include "test_utility.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
+typedef long ssize_t;
+
+/**
+ * POSIX の getline 相当。Windows／Linux 両対応で
+ * 動的にバッファを拡張しつつ一行読み込む。
+ */
+static ssize_t read_line(char **lineptr, size_t *n, FILE *stream) {
+    if (!lineptr || !n || !stream) return -1;
+    char *buf = *lineptr;
+    size_t size = *n;
+    int c;
+    size_t len = 0;
+
+    while ((c = fgetc(stream)) != EOF) {
+        if (len + 1 >= size) {
+            size_t new_size = size ? size * 2 : 128;
+            char *new_buf = realloc(buf, new_size);
+            if (!new_buf) return -1;
+            buf = new_buf;
+            size = new_size;
+        }
+        buf[len++] = (char)c;
+        if (c == '\n') break;
+    }
+    if (len == 0) return -1;
+    buf[len] = '\0';
+    *lineptr = buf;
+    *n = size;
+    return (ssize_t)len;
+}
+
 /* ---------- ヘッダー行のパース ---------- */
-static char **parse_header(char *line, size_t *out_cols)
-{
+static char **parse_header(char *line, size_t *out_cols) {
     /* 末尾の改行除去 */
     size_t trim = strcspn(line, "\r\n");
     line[trim] = '\0';
@@ -31,8 +60,7 @@ static char **parse_header(char *line, size_t *out_cols)
 }
 
 /* ---------- CSV 読み込み ---------- */
-CsvData *load_csv(const char *filename)
-{
+CsvData *load_csv(const char *filename) {
     FILE *fp = fopen(filename, "r");
     if (!fp) return NULL;
 
@@ -41,7 +69,7 @@ CsvData *load_csv(const char *filename)
     ssize_t n;
 
     /* 1行目：ヘッダー */
-    if ((n = getline(&line, &len, fp)) <= 0) {
+    if ((n = read_line(&line, &len, fp)) <= 0) {
         free(line);
         fclose(fp);
         return NULL;
@@ -58,7 +86,7 @@ CsvData *load_csv(const char *filename)
 
     /* データ行数を先にカウント */
     size_t num_rows = 0;
-    while ((n = getline(&line, &len, fp)) > 0)
+    while ((n = read_line(&line, &len, fp)) > 0)
         if (n > 1) ++num_rows;
 
     /* メモリ確保 */
@@ -67,7 +95,6 @@ CsvData *load_csv(const char *filename)
     for (size_t c = 0; c < num_cols; ++c) {
         data[c] = malloc(sizeof(double) * num_rows);
         if (!data[c]) {
-            /* 途中で失敗したら巻き戻し */
             for (size_t k = 0; k < c; ++k) free(data[k]);
             free(data);
             free(line);
@@ -78,20 +105,16 @@ CsvData *load_csv(const char *filename)
 
     /* 再度ファイル先頭へ */
     fseek(fp, 0, SEEK_SET);
-    // getline(&line, &len, fp);  /* ヘッダー読み飛ばし */
-    {
-        ssize_t ret = getline(&line, &len, fp);
-        if (ret <= 0) {
-            /* 何も読めなかった or エラー */
-            free(line);
-            fclose(fp);
-            return NULL;
-        }
+    /* ヘッダー行読み飛ばし */
+    if (read_line(&line, &len, fp) <= 0) {
+        free(line);
+        fclose(fp);
+        return NULL;
     }
 
     /* 各行をパース */
     size_t row = 0;
-    while ((n = getline(&line, &len, fp)) > 0) {
+    while ((n = read_line(&line, &len, fp)) > 0) {
         if (n <= 1) continue;
         /* 改行除去 */
         size_t t = strcspn(line, "\r\n");
@@ -117,8 +140,7 @@ CsvData *load_csv(const char *filename)
 }
 
 /* ---------- CSV 解放 ---------- */
-void free_csv(CsvData *csv)
-{
+void free_csv(CsvData *csv) {
     if (!csv) return;
     for (size_t i = 0; i < csv->num_cols; ++i)
         free(csv->col_names[i]);
@@ -134,8 +156,7 @@ int write_csv(const char *filename,
               const char *header,
               size_t      num_cols,
               size_t      num_rows,
-              double    **results)
-{
+              double    **results) {
     FILE *fp = fopen(filename, "w");
     if (!fp) return -1;
     fprintf(fp, "%s\n", header);
@@ -153,8 +174,7 @@ int write_csv(const char *filename,
 /* ---------- find_columns ---------- */
 int find_columns(const CsvData *csv,
                  const char *names[], size_t n_names,
-                 int         indices[])
-{
+                 int         indices[]) {
     for (size_t i = 0; i < n_names; ++i) {
         indices[i] = -1;
         for (size_t c = 0; c < csv->num_cols; ++c) {
@@ -164,14 +184,13 @@ int find_columns(const CsvData *csv,
             }
         }
         if (indices[i] < 0)
-            return -1;  /* 見つからなかった */
+            return -1;
     }
     return 0;
 }
 
 /* ---------- alloc_results / free_results ---------- */
-double **alloc_results(size_t num_cols, size_t num_rows)
-{
+double **alloc_results(size_t num_cols, size_t num_rows) {
     double **res = malloc(sizeof(double*) * num_cols);
     if (!res) return NULL;
     for (size_t c = 0; c < num_cols; ++c) {
@@ -185,8 +204,7 @@ double **alloc_results(size_t num_cols, size_t num_rows)
     return res;
 }
 
-void free_results(double **results, size_t num_cols)
-{
+void free_results(double **results, size_t num_cols) {
     if (!results) return;
     for (size_t c = 0; c < num_cols; ++c)
         free(results[c]);
@@ -198,8 +216,7 @@ int process_csv(const char *infile,
                 const char *outfile,
                 const char *in_cols[],  size_t num_in,
                 const char *out_cols[], size_t num_out,
-                RowFunc      fn)
-{
+                RowFunc      fn) {
     CsvData *csv = load_csv(infile);
     if (!csv) return -1;
 

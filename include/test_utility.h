@@ -2,6 +2,7 @@
 #define TEST_UTILITY_H
 
 #include <stddef.h>
+#include <stdio.h>
 
 #ifdef __cplusplus
 extern "C" {
